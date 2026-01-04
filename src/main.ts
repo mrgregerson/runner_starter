@@ -4,7 +4,7 @@ const WIDTH = 720;
 const HEIGHT = 720;
 const BASE_SPEED = 360;
 
-// Ground setup (less dead space)
+// Ground setup (less dead spacer)
 const GROUND_HEIGHT = 180;
 const GROUND_Y = HEIGHT - GROUND_HEIGHT; // surface line
 
