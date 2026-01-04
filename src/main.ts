@@ -2,14 +2,22 @@ import Phaser from "phaser";
 
 const WIDTH = 720;
 const HEIGHT = 720;
+
 const BASE_SPEED = 360;
+const MAX_SPEED = 900; // cap so difficulty doesn't become impossible
 
 // Ground setup (less dead spacer)
 const GROUND_HEIGHT = 180;
 const GROUND_Y = HEIGHT - GROUND_HEIGHT; // surface line
 
-// Slide behavior
-const SLIDE_MIN_MS = 220;
+// Physics (base)
+const GRAVITY_Y_BASE = 1800;
+const JUMP_VEL_BASE = 720; // positive magnitude
+
+// Slide timing
+const SLIDE_MIN_MS = 220;          // keyboard hold minimum
+const TOUCH_SLIDE_MS_BASE = 1000;  // swipe-down slide duration at start
+const TOUCH_SLIDE_MS_MIN = 420;    // never shorter than this
 
 class RunnerScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -77,7 +85,7 @@ class RunnerScene extends Phaser.Scene {
     this.player = this.physics.add.sprite(150, GROUND_Y, "player");
     this.player.setOrigin(0.5, 1);
     this.player.setCollideWorldBounds(true);
-    this.player.setGravityY(1800);
+    this.player.setGravityY(GRAVITY_Y_BASE);
 
     // Hitbox (standing)
     this.setPlayerHitboxStanding();
@@ -128,10 +136,10 @@ class RunnerScene extends Phaser.Scene {
       // If it's mostly horizontal, ignore it
       if (Math.abs(dx) > SWIPE_X_TOLERANCE && Math.abs(dx) > Math.abs(dy)) return;
 
-      // Swipe down => slide
+      // Swipe down => slide (fixed duration for touch)
       if (dy > SWIPE_Y_THRESHOLD) {
         this.touchGestureFired = true;
-        this.startOrMaintainSlide(this.time.now); // triggers slide for at least SLIDE_MIN_MS
+        this.startSlideFor(this.time.now, this.getTouchSlideDurationMs());
         return;
       }
 
@@ -150,38 +158,46 @@ class RunnerScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (this.gameIsOver) return;
-
-    // Speed ramp
-    this.speed += delta * 0.015;
-
+  
+    // Speed ramp + cap
+    this.speed = Math.min(MAX_SPEED, this.speed + delta * 0.015);
+  
+    // Make gravity scale with speed so the jump resolves faster later on
+    const f = this.getSpeedFactor();
+    this.player.setGravityY(GRAVITY_Y_BASE * f);
+  
     // Score
     this.score += (delta * this.speed) / 1000;
     this.scoreText.setText(`Score: ${Math.floor(this.score)}`);
-
+  
     // Jump
     if (Phaser.Input.Keyboard.JustDown(this.jumpKey)) this.tryJump();
-
+  
     // Slide: keyboard hold only (touch swipe triggers slide directly)
     const slideHeld = this.downKey.isDown || this.sKey.isDown;
-
+  
     if (slideHeld) {
-      this.startOrMaintainSlide(time);
+      this.startSlideFor(time, SLIDE_MIN_MS);
     } else {
       if (this.isSliding && time >= this.slideMinUntil) {
         this.endSlide();
       }
     }
-
+  
     // Spawn obstacles
     if (time >= this.nextSpawnAt) {
       this.spawnObstacle();
-
+  
       const minGap = 560;
       const maxGap = 920;
-      const gap = Phaser.Math.Clamp(920 - (this.speed - 360) * 0.8, minGap, maxGap);
+      const gap = Phaser.Math.Clamp(
+        920 - (this.speed - BASE_SPEED) * 0.8,
+        minGap,
+        maxGap
+      );
       this.nextSpawnAt = time + gap;
     }
-
+  
     // Move obstacles left
     this.obstacles.getChildren().forEach((o) => {
       const obs = o as Phaser.Physics.Arcade.Sprite;
@@ -189,25 +205,45 @@ class RunnerScene extends Phaser.Scene {
       if (obs.x < -200) obs.destroy();
     });
   }
-
+  
+  private getSpeedFactor() {
+    // 1.0 at base speed, up to MAX_SPEED/BASE_SPEED
+    return Phaser.Math.Clamp(this.speed / BASE_SPEED, 1, MAX_SPEED / BASE_SPEED);
+  }
+  
+  private getTouchSlideDurationMs() {
+    // Start at 1000ms, gently shorten as speed increases (but never below min).
+    // If you want it ALWAYS 1000ms, just: return TOUCH_SLIDE_MS_BASE;
+    const f = this.getSpeedFactor();
+    const raw = TOUCH_SLIDE_MS_BASE * Math.pow(1 / f, 0.3);
+    return Math.round(Phaser.Math.Clamp(raw, TOUCH_SLIDE_MS_MIN, TOUCH_SLIDE_MS_BASE));
+  }
+   
   private tryJump() {
     const onGround = (this.player.body as Phaser.Physics.Arcade.Body).blocked.down;
     if (!onGround) return;
-
+  
     if (this.isSliding) this.endSlide();
-
-    this.player.setVelocityY(-720);
+  
+    // Keep jump height similar but shorten airtime as speed increases:
+    // gravity scales by f, jump velocity scales by sqrt(f)
+    const f = this.getSpeedFactor();
+    const jumpVel = -JUMP_VEL_BASE * Math.sqrt(f);
+  
+    this.player.setVelocityY(jumpVel);
   }
-
-  private startOrMaintainSlide(time: number) {
+  
+  private startSlideFor(time: number, durationMs: number) {
     const onGround = (this.player.body as Phaser.Physics.Arcade.Body).blocked.down;
     if (!onGround) return;
-
+  
     if (!this.isSliding) {
       this.isSliding = true;
-      this.slideMinUntil = time + SLIDE_MIN_MS;
       this.setPlayerHitboxSliding();
     }
+  
+    // Extend slide end time if called again (safe for holds / repeated swipes)
+    this.slideMinUntil = Math.max(this.slideMinUntil, time + durationMs);
   }
 
   private endSlide() {
@@ -219,19 +255,28 @@ class RunnerScene extends Phaser.Scene {
     const type = Phaser.Math.Between(0, 1);
 
     if (type === 0) {
+      // LOW hurdle: must JUMP (now half-size)
       const hurdle = this.physics.add.sprite(WIDTH + 120, GROUND_Y, "hurdle");
       hurdle.setOrigin(0.5, 1);
-      hurdle.body.setSize(72, 62, true);
-      hurdle.body.setOffset(4, 6);
+
+      // Hitbox roughly matches 40x35 texture
+      hurdle.body.setSize(36, 31, true);
+      hurdle.body.setOffset(2, 2);
+
       hurdle.setImmovable(true);
       hurdle.body.allowGravity = false;
       this.obstacles.add(hurdle);
     } else {
+      
+      // HIGH bar: must SLIDE under (now half-length)
       const barBottomY = GROUND_Y - 105;
       const bar = this.physics.add.sprite(WIDTH + 120, barBottomY, "bar");
       bar.setOrigin(0.5, 1);
-      bar.body.setSize(130, 26, true);
-      bar.body.setOffset(5, 4);
+
+      // Hitbox roughly matches 70x34 texture
+      bar.body.setSize(65, 26, true);
+      bar.body.setOffset(2, 4);
+
       bar.setImmovable(true);
       bar.body.allowGravity = false;
       this.obstacles.add(bar);
@@ -247,7 +292,7 @@ class RunnerScene extends Phaser.Scene {
     panel.setStrokeStyle(2, 0xf5e6b3, 1);
 
     this.add
-      .text(WIDTH / 2, HEIGHT / 2 - 40, "AMEN.", {
+      .text(WIDTH / 2, HEIGHT / 2 - 40, "GAME OVER", {
         fontFamily: "system-ui, Arial",
         fontSize: "48px",
         color: "#f5e6b3",
@@ -277,45 +322,52 @@ class RunnerScene extends Phaser.Scene {
   private makeTextures() {
     const g = this.add.graphics();
 
-    // Player
+    // Player (HALF WIDTH, same height)
     g.fillStyle(0xf5e6b3, 1);
-    g.fillRoundedRect(0, 0, 90, 120, 18);
+    g.fillRoundedRect(0, 0, 45, 120, 14); // was 90 wide -> now 45
     g.lineStyle(4, 0x8a6b3a, 1);
-    g.strokeRoundedRect(0, 0, 90, 120, 18);
-    g.generateTexture("player", 90, 120);
+    g.strokeRoundedRect(0, 0, 45, 120, 14);
+    g.generateTexture("player", 45, 120);
     g.clear();
 
-    // Hurdle
+    // Hurdle (orange) — HALF SIZE (was 80x70, now 40x35)
     g.fillStyle(0xffaa33, 1);
-    g.fillRect(0, 0, 80, 70);
-    g.lineStyle(4, 0x6b3d00, 1);
-    g.strokeRect(0, 0, 80, 70);
-    g.generateTexture("hurdle", 80, 70);
+    g.fillRect(0, 0, 40, 35);
+    g.lineStyle(3, 0x6b3d00, 1);     // slightly thinner outline fits better
+    g.strokeRect(0, 0, 40, 35);
+    g.generateTexture("hurdle", 40, 35);
     g.clear();
-
-    // Bar
+   
+    // Bar (blue) — HALF LENGTH (was 140x34, now 70x34)
     g.fillStyle(0x66ccff, 1);
-    g.fillRect(0, 0, 140, 34);
+    g.fillRect(0, 0, 70, 34);
     g.lineStyle(4, 0x003f55, 1);
-    g.strokeRect(0, 0, 140, 34);
-    g.generateTexture("bar", 140, 34);
-
+    g.strokeRect(0, 0, 70, 34);
+    g.generateTexture("bar", 70, 34);
+   
     g.destroy();
   }
 
   private setPlayerHitboxStanding() {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setSize(70, 110, true);
-    body.setOffset((90 - 70) / 2, 120 - 110);
+    
+    // texture size is now 45x120
+    body.setSize(35, 110, true);
+    body.setOffset((45 - 35) / 2, 120 - 110);
+    
     this.player.clearTint();
   }
 
   private setPlayerHitboxSliding() {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setSize(85, 55, true);
-    body.setOffset((90 - 85) / 2, 120 - 55);
+  
+    // texture size is now 45x120
+    body.setSize(42, 55, true);
+    body.setOffset((45 - 42) / 2, 120 - 55);
+  
     this.player.setTint(0xdde8ff);
   }
+  
 }
 
 const config: Phaser.Types.Core.GameConfig = {
