@@ -15,9 +15,9 @@ const GRAVITY_Y_BASE = 1800;
 const JUMP_VEL_BASE = 720; // positive magnitude
 
 // Slide timing
-const SLIDE_MIN_MS = 220;          // keyboard hold minimum
-const TOUCH_SLIDE_MS_BASE = 1000;  // swipe-down slide duration at start
-const TOUCH_SLIDE_MS_MIN = 420;    // never shorter than this
+const SLIDE_MIN_MS = 330;          // keyboard hold minimum 220 * 1.5
+const TOUCH_SLIDE_MS_BASE = 1500;  // swipe-down slide duration at start 1000 * 1.5
+const TOUCH_SLIDE_MS_MIN = 630;    // never shorter than this 420 * 1.5
 
 class RunnerScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -333,7 +333,7 @@ class RunnerScene extends Phaser.Scene {
     // Hurdle (orange) — HALF SIZE (was 80x70, now 40x35)
     g.fillStyle(0xffaa33, 1);
     g.fillRect(0, 0, 40, 35);
-    g.lineStyle(3, 0x6b3d00, 1);     // slightly thinner outline fits better
+    g.lineStyle(3, 0x6b3d00, 1); // slightly thinner outline fits better
     g.strokeRect(0, 0, 40, 35);
     g.generateTexture("hurdle", 40, 35);
     g.clear();
@@ -350,22 +350,36 @@ class RunnerScene extends Phaser.Scene {
 
   private setPlayerHitboxStanding() {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    
-    // texture size is now 45x120
+  
+    // Collision (standing)
     body.setSize(35, 110, true);
     body.setOffset((45 - 35) / 2, 120 - 110);
-    
+  
+    // Visual (standing)
+    this.tweens.add({
+      targets: this.player,
+      angle: 0,
+      duration: 90,
+      ease: "Sine.easeOut",
+    });
     this.player.clearTint();
   }
-
+  
   private setPlayerHitboxSliding() {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
   
-    // texture size is now 45x120
+    // Collision (sliding)
     body.setSize(42, 55, true);
     body.setOffset((45 - 42) / 2, 120 - 55);
   
-    this.player.setTint(0xdde8ff);
+    // Visual (slide cue) — lean back ~45°
+    this.tweens.add({
+      targets: this.player,
+      angle: -45,
+      duration: 80,
+      ease: "Sine.easeOut",
+    });
+       this.player.setTint(0xdde8ff);
   }
   
 }
