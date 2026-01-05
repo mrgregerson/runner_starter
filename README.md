@@ -4,7 +4,7 @@ A beginner-friendly Phaser 3 endless runner starter built with TypeScript + Vite
 Includes: jump + slide, swipe controls, start screen, score, speed ramp, and Cloudflare Pages deployment-ready build.
 
 ## Play / Demo
-- Cloudflare Pages URL: (add your link here)
+- Cloudflare Pages URL: https://runner-starter.pages.dev/
 
 ## Controls
 ### Desktop
