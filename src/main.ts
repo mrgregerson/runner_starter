@@ -314,7 +314,7 @@ class RunnerScene extends Phaser.Scene {
     panel.setStrokeStyle(2, 0xf5e6b3, 1);
     panel.setDepth(1000);
   
-    const titleText = this.add.text(panelX, this.panelTopY + 22, "HOLY GAINS", {
+    const titleText = this.add.text(panelX, this.panelTopY + 22, "ENDLESS RUNNER", {
       fontFamily: "system-ui, Arial",
       fontSize: "44px",
       color: "#f5e6b3",
