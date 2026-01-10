@@ -251,13 +251,21 @@ class RunnerScene extends Phaser.Scene {
   private tryJump() {
     const onGround = (this.player.body as Phaser.Physics.Arcade.Body).blocked.down;
     if (!onGround) return;
-
+  
+    // ✅ Anti-exploit: if the player is HOLDING the slide key, do not allow jump.
+    // Timed slides (touch swipe) are still allowed because no key is being held.
+    const slideKeyHeld = this.downKey.isDown || this.sKey.isDown;
+    if (slideKeyHeld) return;
+  
+    // If currently sliding (timed slide), end slide before jumping (optional but clean)
     if (this.isSliding) this.endSlide();
-
+  
+    // Keep jump height similar but shorten airtime as speed increases:
     const f = this.getSpeedFactor();
     const jumpVel = -JUMP_VEL_BASE * Math.sqrt(f);
     this.player.setVelocityY(jumpVel);
   }
+  
 
   private startSlideFor(time: number, durationMs: number) {
     const onGround = (this.player.body as Phaser.Physics.Arcade.Body).blocked.down;
